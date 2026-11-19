@@ -37,6 +37,22 @@ def parse_page_range(value: str, total_pages: int) -> list[int]:
     return sorted(selected)
 
 
+def prompt_page_selection(total_pages: int) -> str | None:
+    """Ask the user which 1-based pages to extract; blank/'all' means all pages."""
+    print(f"PDF contains {total_pages} pages.")
+    print("Enter page numbers/ranges (examples: 5 | 10-25 | 1-5,12,20-24).")
+    print("Press Enter or type 'all' to extract every page.")
+    while True:
+        value = input("Pages to extract: ").strip()
+        if not value or value.lower() in {"all", "a"}:
+            return None
+        try:
+            parse_page_range(value, total_pages)
+            return value
+        except ValueError as error:
+            print(f"Invalid selection: {error}")
+
+
 def clean_text(value: str | None) -> str:
     """Normalize line endings while preserving paragraph separation."""
     if not value:
@@ -113,6 +129,7 @@ def extract_pdf(
     pdf_path: Path,
     output_path: Path,
     pages_argument: str | None = None,
+    interactive: bool = False,
 ) -> tuple[int, int, int]:
     if not pdf_path.is_file():
         raise FileNotFoundError(f"Input PDF not found: {pdf_path}")
@@ -123,6 +140,8 @@ def extract_pdf(
 
     with fitz.open(pdf_path) as document, pdfplumber.open(pdf_path) as pdf:
         total_pages = len(document)
+        if interactive:
+            pages_argument = prompt_page_selection(total_pages)
         selected = (
             parse_page_range(pages_argument, total_pages)
             if pages_argument else list(range(1, total_pages + 1))
@@ -199,11 +218,18 @@ def main() -> int:
         "--pages",
         help="Optional 1-based page selection, e.g. 1-10,15,20-25",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Prompt for page numbers/ranges before extraction",
+    )
     args = parser.parse_args()
+    if args.interactive and args.pages:
+        parser.error("Use either --interactive or --pages, not both.")
 
     try:
         processed, text_pages, tables = extract_pdf(
-            args.pdf, args.output, args.pages
+            args.pdf, args.output, args.pages, args.interactive
         )
     except (FileNotFoundError, ValueError, fitz.FileDataError) as error:
         parser.error(str(error))
