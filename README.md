@@ -57,3 +57,59 @@ The output is UTF-8 with BOM (utf-8-sig), which is convenient for common Windows
 2. Review pages flagged as having no embedded text; these may need OCR.
 3. Compare every extracted table with its source page.
 4. Convert only verified content into structured JSON/CSV with edition, clause, table, and page metadata.
+
+
+## Upload extracted output directly to GitHub
+
+The script can commit the generated TXT file to a GitHub repository immediately after extraction. It uses the GitHub Contents API and updates an existing file safely by reading its current SHA first.
+
+### 1. Create a GitHub token
+
+Create a fine-grained personal access token with **Contents: Read and write** access to the target repository. Do not put the token in this repository or in the script.
+
+In Windows PowerShell, set it for the current terminal session:
+
+    $env:GITHUB_TOKEN = "YOUR_GITHUB_TOKEN"
+
+### 2. Extract and upload in one command
+
+Example for the relevant pages of Mabhas 16:
+
+    python pdf_to_txt.py "mabhas-16-1402-08.pdf" -o "chapter-5.txt" --pages 107-145 --github-upload
+
+By default, the output is committed to:
+
+    alizarei-eng/mechanical-engineering-library
+    references/Mabhas16/extraction-tests/chapter-5.txt
+
+### Optional GitHub settings
+
+Choose another repository:
+
+    --github-repo "owner/repository"
+
+Choose another destination path:
+
+    --github-path "references/Mabhas16/raw/chapter-5.txt"
+
+Choose another branch:
+
+    --github-branch "main"
+
+Set a commit message:
+
+    --github-message "Add chapter 5 extraction"
+
+Complete example:
+
+    python pdf_to_txt.py "mabhas-16-1402-08.pdf" -o "chapter-5.txt" --pages 107-145 --github-upload --github-path "references/Mabhas16/extraction-tests/chapter-5.txt" --github-message "Extract chapter 5 tables"
+
+### Upload behavior and safety
+
+- Without `--github-upload`, the script only creates the local output as before.
+- The local TXT file is retained after upload.
+- If the destination file does not exist, GitHub creates it; if it exists, the script updates it using its current file SHA.
+- The script uploads only the generated TXT output, not the source PDF.
+- If upload fails, the local output remains available and the script exits with a non-zero status.
+- The token is read from the `GITHUB_TOKEN` environment variable and is never written to the output file.
+- Extracted tables are still unverified. Check every value against the original PDF before using it in engineering calculations.
