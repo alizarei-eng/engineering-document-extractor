@@ -8,7 +8,12 @@ Example: python pdf_to_txt.py input.pdf -o output.txt --pages 10-25
 from __future__ import annotations
 
 import argparse
+import base64
+import json
+import os
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pymupdf
@@ -204,6 +209,75 @@ def extract_pdf(
     return len(selected), text_pages, table_count
 
 
+def upload_to_github(
+    local_file: Path,
+    repository: str,
+    remote_path: str,
+    branch: str = "main",
+    token: str | None = None,
+    commit_message: str | None = None,
+) -> str:
+    """Upload or update a UTF-8 file using GitHub's Contents API."""
+    token = token or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "GitHub token not found. Set the GITHUB_TOKEN environment variable."
+        )
+    if "/" not in repository or not remote_path.strip("/"):
+        raise ValueError("Repository must be owner/name and remote path cannot be empty.")
+
+    api_url = (
+        "https://api.github.com/repos/"
+        f"{repository}/contents/{remote_path.lstrip('/')}"
+    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "engineering-document-extractor",
+    }
+
+    # Read the current file SHA when it already exists; this is required for updates.
+    current_sha = None
+    query_url = f"{api_url}?ref={branch}"
+    request = urllib.request.Request(query_url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            existing = json.loads(response.read().decode("utf-8"))
+            current_sha = existing.get("sha")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            detail = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"GitHub lookup failed ({error.code}): {detail}") from error
+
+    encoded_content = base64.b64encode(local_file.read_bytes()).decode("ascii")
+    payload = {
+        "message": commit_message or f"Add extracted PDF data: {remote_path}",
+        "content": encoded_content,
+        "branch": branch,
+    }
+    if current_sha:
+        payload["sha"] = current_sha
+
+    put_request = urllib.request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(put_request, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"GitHub upload failed ({error.code}): {detail}") from error
+
+    commit_sha = result.get("commit", {}).get("sha")
+    if not commit_sha:
+        raise RuntimeError("GitHub response did not include a commit SHA.")
+    return commit_sha
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Extract PDF text and detectable tables to UTF-8 TXT."
@@ -217,6 +291,29 @@ def main() -> int:
     parser.add_argument(
         "--pages",
         help="Optional 1-based page selection, e.g. 1-10,15,20-25",
+    )
+    parser.add_argument(
+        "--github-upload",
+        action="store_true",
+        help="Upload the extracted TXT directly to GitHub after extraction.",
+    )
+    parser.add_argument(
+        "--github-repo",
+        default="alizarei-eng/mechanical-engineering-library",
+        help="Target GitHub repository (default: alizarei-eng/mechanical-engineering-library).",
+    )
+    parser.add_argument(
+        "--github-path",
+        help="Destination path in the repository. Default: references/Mabhas16/extraction-tests/<output filename>.",
+    )
+    parser.add_argument(
+        "--github-branch",
+        default="main",
+        help="Target branch (default: main).",
+    )
+    parser.add_argument(
+        "--github-message",
+        help="Optional Git commit message.",
     )
     parser.add_argument(
         "--interactive",
@@ -242,6 +339,27 @@ def main() -> int:
     print(f"Pages with embedded text: {text_pages}")
     print(f"Tables detected: {tables}")
     print(f"Output: {args.output.resolve()}")
+
+    if args.github_upload:
+        remote_path = args.github_path or (
+            "references/Mabhas16/extraction-tests/" + args.output.name
+        )
+        try:
+            commit_sha = upload_to_github(
+                local_file=args.output,
+                repository=args.github_repo,
+                remote_path=remote_path,
+                branch=args.github_branch,
+                commit_message=args.github_message,
+            )
+        except Exception as error:
+            print(f"GitHub upload failed: {error}", file=sys.stderr)
+            return 2
+        print("GitHub upload completed.")
+        print(f"Repository: https://github.com/{args.github_repo}")
+        print(f"File: https://github.com/{args.github_repo}/blob/{args.github_branch}/{remote_path}")
+        print(f"Commit: {commit_sha}")
+
     return 0
 
 
