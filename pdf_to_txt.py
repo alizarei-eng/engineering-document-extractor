@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import fitz
+import pymupdf
 import pdfplumber
 
 
@@ -138,7 +138,7 @@ def extract_pdf(
     text_pages = 0
     table_count = 0
 
-    with fitz.open(pdf_path) as document, pdfplumber.open(pdf_path) as pdf:
+    with pymupdf.open(pdf_path) as document, pdfplumber.open(pdf_path) as pdf:
         total_pages = len(document)
         if interactive:
             pages_argument = prompt_page_selection(total_pages)
@@ -231,7 +231,7 @@ def main() -> int:
         processed, text_pages, tables = extract_pdf(
             args.pdf, args.output, args.pages, args.interactive
         )
-    except (FileNotFoundError, ValueError, fitz.FileDataError) as error:
+    except (FileNotFoundError, ValueError, pymupdf.FileDataError) as error:
         parser.error(str(error))
     except Exception as error:
         print(f"Extraction failed: {error}", file=sys.stderr)
