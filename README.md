@@ -26,6 +26,14 @@ Select multiple ranges/pages:
 
     python pdf_to_txt.py "input.pdf" -o "selected-pages.txt" --pages 1-5,12,20-24
 
+Choose pages interactively (the program asks which pages to extract):
+
+    python pdf_to_txt.py "input.pdf" -o "selected-pages.txt" --interactive
+
+In interactive mode, enter values such as `8`, `10-25`, or `1-5,12,20-24`.
+Press Enter or type `all` to extract the entire PDF. Page numbers start at 1.
+Use either `--interactive` or `--pages`, not both.
+
 ## Output
 
 For each page, the TXT file contains:
